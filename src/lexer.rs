@@ -81,7 +81,6 @@ impl<'a> Lexer<'a> {
         let start = self.start;
         self.start = self.current;
 
-        // TODO: change for the iterator
         Token::new(
             token_type,
             &self.source[start..self.current],
@@ -153,6 +152,9 @@ impl<'a> Lexer<'a> {
             ws if ws.is_whitespace() => return Err(LexErrorType::ContinueLexing),
 
             c => {
+                // Consume the token, doesn't matter what token type since it's
+                // getting thrown away
+                _ = self.add_token(TokenType::Ident);
                 return Err(LexErrorType::UnknownCharacter(c));
             },
         })
