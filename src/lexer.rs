@@ -13,7 +13,7 @@ impl std::fmt::Display for LexErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ContinueLexing =>      write!(f, "continue lexing"),
-            Self::UnknownCharacter(c) => write!(f, "Unknown character: {}", c)
+            Self::UnknownCharacter(c) => write!(f, "Unexpected character: {}", c)
         }
     }
 }
@@ -29,7 +29,7 @@ pub struct LexError {
 
 impl std::fmt::Display for LexError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[line {}] ", self.line)?;
+        write!(f, "[line {}] Error: ", self.line)?;
         self.ty.fmt(f)
     }
 }
