@@ -152,10 +152,8 @@ impl<'a> Lexer<'a> {
             // Ignore whitespace for now
             ws if ws.is_whitespace() => return Err(LexErrorType::ContinueLexing),
 
-            // TODO: Pass the error
             c => {
-                eprintln!("[line {}] Error: Unexpected character: {}", self.line, c);
-                return Err(LexErrorType::ContinueLexing);
+                return Err(LexErrorType::UnknownCharacter(c));
             },
         })
     }
