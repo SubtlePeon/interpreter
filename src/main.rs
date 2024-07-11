@@ -1,14 +1,15 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write};
+use std::process::ExitCode;
 
 use interpreter_starter_rust::*;
 
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        writeln!(io::stderr(), "Usage: {} tokenize <filename>", args[0]).unwrap();
-        return;
+        eprintln!("Usage: {} tokenize <filename>", args[0]);
+        return 0.into();
     }
 
     let command = &args[1];
@@ -16,23 +17,33 @@ fn main() {
 
     match command.as_str() {
         "tokenize" => {
-            // Write to stderr, not stdin
-            writeln!(io::stderr(), "Test log").unwrap();
-
             let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
                 writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
                 String::new()
             });
 
+            let mut errored = false;
             let scanner = lexer::Lexer::new(&file_contents);
             let tokens: Vec<_> = scanner.collect();
             for tok in tokens {
-                println!("{}", tok);
+                match tok {
+                    Ok(tok) => println!("{}", tok),
+                    Err(err) => {
+                        errored = true;
+                        eprintln!("{}", err);
+                    },
+                }
+            }
+
+            if errored {
+                return 65.into();
+            } else {
+                return 0.into();
             }
         }
         _ => {
-            writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
-            return;
+            eprintln!("Unknown command: {}", command);
+            return 0.into();
         }
     }
 }

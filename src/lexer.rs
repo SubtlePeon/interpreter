@@ -1,5 +1,41 @@
 use crate::token::{Token, TokenType};
 
+/// The type of lex error
+#[derive(Clone, Debug)]
+pub enum LexErrorType {
+    /// Continue lexing. This error should normally not be returned
+    ContinueLexing,
+    /// Unknown character.
+    UnknownCharacter(char)
+}
+
+impl std::fmt::Display for LexErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ContinueLexing =>      write!(f, "continue lexing"),
+            Self::UnknownCharacter(c) => write!(f, "Unknown character: {}", c)
+        }
+    }
+}
+
+impl std::error::Error for LexErrorType {}
+
+/// Contains some context about the lex error
+#[derive(Clone, Debug)]
+pub struct LexError {
+    line: usize,
+    ty: LexErrorType,
+}
+
+impl std::fmt::Display for LexError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[line {}] ", self.line)?;
+        self.ty.fmt(f)
+    }
+}
+
+impl std::error::Error for LexError {}
+
 // TODO: Add implementation for buffered readers for large files
 // TODO: Add implementatoin for `impl Iterator<Item = char>` for preprocessing
 /// The lexer. Scans through the source string and creates tokens out of them.
@@ -73,10 +109,10 @@ impl<'a> Lexer<'a> {
     }
 
     /// Helper function to create tokens from characters
-    fn accept_character(&mut self, c: char) -> Option<Token<'a>> {
+    fn accept_character(&mut self, c: char) -> Result<Token<'a>, LexErrorType> {
         use TokenType::*;
 
-        Some(match c {
+        Ok(match c {
             // Single characters
             '(' => self.add_token(LeftParen),
             ')' => self.add_token(RightParen),
@@ -103,7 +139,7 @@ impl<'a> Lexer<'a> {
             '/' if self.peek_match('/') => loop {
                 match self.chars.peek() {
                     None => break self.add_eof(),
-                    Some('\n') => return None,
+                    Some('\n') => return Err(LexErrorType::ContinueLexing),
                     Some(_) => {}
                 }
             }
@@ -111,20 +147,20 @@ impl<'a> Lexer<'a> {
 
             '\n' => {
                 self.line += 1;
-                return None;
+                return Err(LexErrorType::ContinueLexing);
             }
             // Ignore whitespace for now
-            ws if ws.is_whitespace() => return None,
+            ws if ws.is_whitespace() => return Err(LexErrorType::ContinueLexing),
 
             // TODO: Pass the error
             c => {
                 eprintln!("[line {}] Error: Unexpected character: {}", self.line, c);
-                return None;
+                return Err(LexErrorType::ContinueLexing);
             },
         })
     }
 
-    pub fn scan_token(&mut self) -> Token<'a> {
+    pub fn scan_token(&mut self) -> Result<Token<'a>, LexError> {
         loop {
             let tok = match self.advance() {
                 None => {
@@ -132,23 +168,30 @@ impl<'a> Lexer<'a> {
                     self.add_eof()
                 }
                 Some(c) => match self.accept_character(c) {
-                    None => continue,
-                    Some(token) => token,
+                    Ok(token) => token,
+                    Err(LexErrorType::ContinueLexing) => continue,
+                    Err(err) => break Err(LexError {
+                        line: self.line,
+                        ty: err,
+                    }),
                 }
             };
 
-            break tok
+            break Ok(tok)
         }
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
+    type Item = Result<Token<'a>, LexError>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             None
         } else {
-            Some(self.scan_token())
+            match self.scan_token() {
+                Ok(x) => Some(Ok(x)),
+                Err(err) => Some(Err(err))
+            }
         }
     }
 }
@@ -161,7 +204,7 @@ mod test {
 
     #[test]
     fn empty_file_works() {
-        let lexed: Vec<_> = Lexer::new("").map(|t| t.token_type()).collect();
+        let lexed: Vec<_> = Lexer::new("").map(|t| t.unwrap().token_type()).collect();
         assert_eq!(lexed, vec![TokenType::Eof]);
     }
 
@@ -169,7 +212,7 @@ mod test {
     fn some_symbols_work() {
         let input_str = ",.*;>=<=";
         let lexed: Vec<_> = Lexer::new(input_str)
-            .map(|t| t.token_type())
+            .map(|t| t.unwrap().token_type())
             .collect();
         assert_eq!(lexed, vec![
             TokenType::Comma,
@@ -186,7 +229,7 @@ mod test {
     fn some_symbols_work_literal() {
         let input_str = ",.*;>=<=";
         let lexed: Vec<_> = Lexer::new(input_str)
-            .map(|t| t.source().to_owned())
+            .map(|t| t.unwrap().source().to_owned())
             .collect();
         assert_eq!(lexed, vec![
             ",",
