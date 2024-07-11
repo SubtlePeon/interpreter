@@ -109,11 +109,18 @@ impl<'a> Lexer<'a> {
             }
             '/' => self.add_token(Slash),
 
+            '\n' => {
+                self.line += 1;
+                return None;
+            }
             // Ignore whitespace for now
             ws if ws.is_whitespace() => return None,
 
             // TODO: Pass the error
-            c => todo!("Unexpected character: '{}'", c),
+            c => {
+                eprintln!("[line {}] Error: Unexpected character: {}", self.line, c);
+                return None;
+            },
         })
     }
 
