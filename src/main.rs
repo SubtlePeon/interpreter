@@ -16,19 +16,18 @@ fn main() {
 
     match command.as_str() {
         "tokenize" => {
-            // You can use print statements as follows for debugging, they'll be visible when running tests.
-            writeln!(io::stderr(), "Logs from your program will appear here!").unwrap();
+            // Write to stderr, not stdin
+            writeln!(io::stderr(), "Test log").unwrap();
 
             let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
                 writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
                 String::new()
             });
 
-            // Uncomment this block to pass the first stage
-            if !file_contents.is_empty() {
-                todo!("Scanner not implemented");
-            } else {
-                println!("EOF  null"); // Placeholder, remove this line when implementing the scanner
+            let scanner = lexer::Lexer::new(&file_contents);
+            let tokens: Vec<_> = scanner.collect();
+            for tok in tokens {
+                println!("{}", tok);
             }
         }
         _ => {

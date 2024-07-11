@@ -72,55 +72,65 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn scan_token(&mut self) -> Token<'a> {
+    /// Helper function to create tokens from characters
+    fn accept_character(&mut self, c: char) -> Option<Token<'a>> {
         use TokenType::*;
 
-        match self.advance() {
-            None => {
-                self.finished = true;
-                self.add_eof()
-            }
-            Some(c) => {
-                match c {
-                    // Single characters
-                    '(' => self.add_token(LeftParen),
-                    ')' => self.add_token(RightParen),
-                    '{' => self.add_token(LeftBrace),
-                    '}' => self.add_token(RightBrace),
-                    ',' => self.add_token(Comma),
-                    '.' => self.add_token(Dot),
-                    '-' => self.add_token(Minus),
-                    '+' => self.add_token(Plus),
-                    ';' => self.add_token(Semicolon),
-                    '*' => self.add_token(Star),
+        Some(match c {
+            // Single characters
+            '(' => self.add_token(LeftParen),
+            ')' => self.add_token(RightParen),
+            '{' => self.add_token(LeftBrace),
+            '}' => self.add_token(RightBrace),
+            ',' => self.add_token(Comma),
+            '.' => self.add_token(Dot),
+            '-' => self.add_token(Minus),
+            '+' => self.add_token(Plus),
+            ';' => self.add_token(Semicolon),
+            '*' => self.add_token(Star),
 
-                    // Two character tokens
-                    '!' if self.peek_match('=') => self.add_token(BangEqual),
-                    '!' => self.add_token(Bang),
-                    '=' if self.peek_match('=') => self.add_token(EqualEqual),
-                    '=' => self.add_token(Equal),
-                    '<' if self.peek_match('=') => self.add_token(LessEqual),
-                    '<' => self.add_token(Less),
-                    '>' if self.peek_match('=') => self.add_token(GreaterEqual),
-                    '>' => self.add_token(Greater),
+            // Two character tokens
+            '!' if self.peek_match('=') => self.add_token(BangEqual),
+            '!' => self.add_token(Bang),
+            '=' if self.peek_match('=') => self.add_token(EqualEqual),
+            '=' => self.add_token(Equal),
+            '<' if self.peek_match('=') => self.add_token(LessEqual),
+            '<' => self.add_token(Less),
+            '>' if self.peek_match('=') => self.add_token(GreaterEqual),
+            '>' => self.add_token(Greater),
 
-                    // Comments continue until end of newline
-                    '/' if self.peek_match('/') => loop {
-                        match self.chars.peek() {
-                            None => break self.add_eof(),
-                            // Recurse to return something
-                            // TODO: Not ideal, if not tail-recursive, this will
-                            // stack overflow for many such comments in a row
-                            Some('\n') => break self.scan_token(),
-                            Some(_) => {}
-                        }
-                    }
-                    '/' => self.add_token(Slash),
-
-                    // TODO: Pass the error
-                    _ => todo!("Unexpected character"),
+            // Comments continue until end of newline
+            '/' if self.peek_match('/') => loop {
+                match self.chars.peek() {
+                    None => break self.add_eof(),
+                    Some('\n') => return None,
+                    Some(_) => {}
                 }
             }
+            '/' => self.add_token(Slash),
+
+            // Ignore whitespace for now
+            ws if ws.is_whitespace() => return None,
+
+            // TODO: Pass the error
+            c => todo!("Unexpected character: '{}'", c),
+        })
+    }
+
+    pub fn scan_token(&mut self) -> Token<'a> {
+        loop {
+            let tok = match self.advance() {
+                None => {
+                    self.finished = true;
+                    self.add_eof()
+                }
+                Some(c) => match self.accept_character(c) {
+                    None => continue,
+                    Some(token) => token,
+                }
+            };
+
+            break tok
         }
     }
 }
