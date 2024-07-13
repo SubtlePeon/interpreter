@@ -1,19 +1,19 @@
-use crate::token::{Token, TokenType};
+use crate::{
+    span::Span,
+    token::{Token, TokenType},
+};
 
 /// The type of lex error
 #[derive(Clone, Debug)]
 pub enum LexErrorType {
-    /// Continue lexing. This error should normally not be returned
-    ContinueLexing,
     /// Unknown character.
-    UnknownCharacter(char)
+    Unknown(char),
 }
 
 impl std::fmt::Display for LexErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ContinueLexing =>      write!(f, "continue lexing"),
-            Self::UnknownCharacter(c) => write!(f, "Unexpected character: {}", c)
+            Self::Unknown(c) => write!(f, "Unexpected character: {}", c),
         }
     }
 }
@@ -22,175 +22,246 @@ impl std::error::Error for LexErrorType {}
 
 /// Contains some context about the lex error
 #[derive(Clone, Debug)]
-pub struct LexError {
-    line: usize,
+pub struct LexError<'a> {
+    span: Span<'a>,
     ty: LexErrorType,
 }
 
-impl std::fmt::Display for LexError {
+impl std::fmt::Display for LexError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[line {}] Error: ", self.line)?;
+        write!(f, "[line {}] Error: ", self.span.line)?;
         self.ty.fmt(f)
     }
 }
 
-impl std::error::Error for LexError {}
+impl std::error::Error for LexError<'_> {}
 
-// TODO: Add implementation for buffered readers for large files
-// TODO: Add implementatoin for `impl Iterator<Item = char>` for preprocessing
+#[derive(Clone, Debug)]
+pub struct Cursor<'a> {
+    source: &'a str,
+    chars: std::str::Chars<'a>,
+    index: usize,
+}
+
+impl<'a> Cursor<'a> {
+    /// Create a new `Cursor`.
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            source: text,
+            chars: text.chars(),
+            index: 0,
+        }
+    }
+
+    /// The byte index of the current position into the source text.
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
+    /// The source text.
+    pub fn source(&self) -> &'a str {
+        self.source
+    }
+
+    /// The first character that would be returned next.
+    pub fn first(&self) -> Option<char> {
+        self.chars.clone().next()
+    }
+
+    /// The first character that would be returned next.
+    ///
+    /// The same thing as [`Self::first`].
+    pub fn peek(&self) -> Option<char> {
+        self.first()
+    }
+
+    /// The second character that would be returned next.
+    pub fn second(&self) -> Option<char> {
+        self.chars.clone().nth(1)
+    }
+}
+
+impl Iterator for Cursor<'_> {
+    type Item = char;
+    fn next(&mut self) -> Option<Self::Item> {
+        let c = self.chars.next()?;
+        self.index = self
+            .index
+            .checked_add(c.len_utf8())
+            .expect("File not too big");
+        Some(c)
+    }
+}
+
+// TODO: Add implementation for buffered readers for large files?
+// TODO: Add implementation for `impl Iterator<Item = char>` for preprocessing?
 /// The lexer. Scans through the source string and creates tokens out of them.
 #[derive(Clone, Debug)]
 pub struct Lexer<'a> {
-    source: &'a str,
-    chars: std::iter::Peekable<std::str::Chars<'a>>,
+    cursor: Cursor<'a>,
     /// What line are we on?
     line: usize,
     /// Where was the beginning of the token we are lexing?
     start: usize,
-    /// How far we are into the `source` string (in characters).
-    current: usize,
+    /// Have we finished lexing?
     finished: bool,
 }
 
 impl<'a> Lexer<'a> {
+    /// Create a new `Lexer`.
     pub fn new(source: &'a str) -> Self {
         Self {
-            source,
-            chars: source.chars().peekable(),
+            cursor: Cursor::new(source),
             line: 1,
             start: 0,
-            current: 0,
             finished: false,
         }
     }
 
-    /// Consumes the next character, incrementing `self.start` by the UTF-8
-    /// byte length of that character. Returns `None` if the end of the file
-    /// is reached.
-    fn advance(&mut self) -> Option<char> {
-        match self.chars.next() {
-            None => None,
-            Some(c) => {
-                self.current += c.len_utf8();
-                Some(c)
-            }
-        }
-    }
-
-    fn add_token(&mut self, token_type: TokenType) -> Token<'a> {
+    /// Creates a new token from `self.start` to `self.cursor.index`.
+    ///
+    /// Resets `self.start`
+    fn new_token(&mut self, token_type: TokenType) -> Token<'a> {
         let start = self.start;
-        self.start = self.current;
+        self.start = self.cursor.index();
 
         Token::new(
             token_type,
-            &self.source[start..self.current],
+            self.cursor.source(),
+            start,
+            self.cursor.index(),
             self.line,
         )
     }
 
-    fn add_eof(&self) -> Token<'a> {
-        Token::new(TokenType::Eof, "", self.line)
+    /// Creates a error from `self.start` to `self.cursor.index`.
+    ///
+    /// Resets `self.start`
+    fn new_error(&mut self, err: LexErrorType) -> LexError<'a> {
+        let span = Span::new(
+            self.line,
+            self.cursor.source(),
+            self.start,
+            self.cursor.index(),
+        );
+        // The next token should be clean.
+        self.start = self.cursor.index();
+
+        LexError { span, ty: err }
     }
 
-    /// Checks if the next character is the expected character. If it is,
-    /// this method consumes that character without returning it, return `true`.
-    /// Otherwise, returns `false`.
-    fn peek_match(&mut self, expected: char) -> bool {
-        match self.chars.peek() {
-            None => false,
-            Some(c) if *c != expected => false,
-            Some(c) => {
-                self.current += c.len_utf8();
-                _ = self.chars.next();
-                true
+    /// Consumes characters until we hit a newline character.
+    fn eat_until_newline(&mut self) {
+        while let Some(c) = self.cursor.first() {
+            if c == '\n' {
+                break;
             }
+            self.cursor.next();
         }
+        // Reset start
+        self.start = self.cursor.index();
     }
 
-    /// Helper function to create tokens from characters
-    fn accept_character(&mut self, c: char) -> Result<Token<'a>, LexErrorType> {
+    /// Helper function to create tokens from the next character.
+    fn eat_char(&mut self, c: char) -> Option<Result<Token<'a>, LexErrorType>> {
+        use crate::token::Delim::*;
         use TokenType::*;
 
-        Ok(match c {
-            // Single characters
-            '(' => self.add_token(LeftParen),
-            ')' => self.add_token(RightParen),
-            '{' => self.add_token(LeftBrace),
-            '}' => self.add_token(RightBrace),
-            ',' => self.add_token(Comma),
-            '.' => self.add_token(Dot),
-            '-' => self.add_token(Minus),
-            '+' => self.add_token(Plus),
-            ';' => self.add_token(Semicolon),
-            '*' => self.add_token(Star),
-
-            // Two character tokens
-            '!' if self.peek_match('=') => self.add_token(BangEqual),
-            '!' => self.add_token(Bang),
-            '=' if self.peek_match('=') => self.add_token(EqualEqual),
-            '=' => self.add_token(Equal),
-            '<' if self.peek_match('=') => self.add_token(LessEqual),
-            '<' => self.add_token(Less),
-            '>' if self.peek_match('=') => self.add_token(GreaterEqual),
-            '>' => self.add_token(Greater),
-
-            // Comments continue until end of newline
-            '/' if self.peek_match('/') => loop {
-                match self.chars.peek() {
-                    None => break self.add_eof(),
-                    Some('\n') => return Err(LexErrorType::ContinueLexing),
-                    Some(_) => {}
+        Some(Ok(match c {
+            '(' => self.new_token(OpenDelim(Paren)),
+            ')' => self.new_token(CloseDelim(Paren)),
+            '{' => self.new_token(OpenDelim(Brace)),
+            '}' => self.new_token(CloseDelim(Brace)),
+            ',' => self.new_token(Comma),
+            '.' => self.new_token(Dot),
+            '-' => self.new_token(Minus),
+            '+' => self.new_token(Plus),
+            ';' => self.new_token(Semicolon),
+            '*' => self.new_token(Star),
+            '!' => {
+                if self.cursor.first() == Some('=') {
+                    self.cursor.next();
+                    self.new_token(BangEq)
+                } else {
+                    self.new_token(Bang)
                 }
             }
-            '/' => self.add_token(Slash),
-
+            '=' => {
+                if self.cursor.first() == Some('=') {
+                    self.cursor.next();
+                    self.new_token(EqEq)
+                } else {
+                    self.new_token(Eq)
+                }
+            }
+            '<' => {
+                if self.cursor.first() == Some('=') {
+                    self.cursor.next();
+                    self.new_token(Le)
+                } else {
+                    self.new_token(Lt)
+                }
+            }
+            '>' => {
+                if self.cursor.first() == Some('=') {
+                    self.cursor.next();
+                    self.new_token(Ge)
+                } else {
+                    self.new_token(Gt)
+                }
+            }
+            '/' => {
+                if self.cursor.first() == Some('/') {
+                    // Comment continues until newline
+                    self.eat_until_newline();
+                    return None;
+                } else {
+                    self.new_token(Slash)
+                }
+            }
             '\n' => {
                 self.line += 1;
-                return Err(LexErrorType::ContinueLexing);
+                self.start = self.cursor.index();
+                return None;
             }
             // Ignore whitespace for now
-            ws if ws.is_whitespace() => return Err(LexErrorType::ContinueLexing),
+            ws if ws.is_ascii_whitespace() => {
+                self.start = self.cursor.index();
+                return None;
+            }
 
-            c => {
-                // Consume the token, doesn't matter what token type since it's
-                // getting thrown away
-                _ = self.add_token(TokenType::Ident);
-                return Err(LexErrorType::UnknownCharacter(c));
-            },
-        })
+            c => return Some(Err(LexErrorType::Unknown(c))),
+        }))
     }
 
-    pub fn scan_token(&mut self) -> Result<Token<'a>, LexError> {
+    pub fn scan_token(&mut self) -> Result<Token<'a>, LexError<'a>> {
         loop {
-            let tok = match self.advance() {
+            break match self.cursor.next() {
                 None => {
                     self.finished = true;
-                    self.add_eof()
+                    Ok(self.new_token(TokenType::Eof))
                 }
-                Some(c) => match self.accept_character(c) {
-                    Ok(token) => token,
-                    Err(LexErrorType::ContinueLexing) => continue,
-                    Err(err) => break Err(LexError {
-                        line: self.line,
-                        ty: err,
-                    }),
+                Some(c) => {
+                    break match self.eat_char(c) {
+                        Some(Ok(token)) => Ok(token),
+                        Some(Err(err)) => Err(self.new_error(err)),
+                        None => continue,
+                    }
                 }
             };
-
-            break Ok(tok)
         }
     }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token<'a>, LexError>;
+    type Item = Result<Token<'a>, LexError<'a>>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             None
         } else {
             match self.scan_token() {
                 Ok(x) => Some(Ok(x)),
-                Err(err) => Some(Err(err))
+                Err(err) => Some(Err(err)),
             }
         }
     }
@@ -200,7 +271,7 @@ impl<'a> Iterator for Lexer<'a> {
 mod test {
     use crate::token::TokenType;
 
-    use super::Lexer;
+    use super::{LexError, Lexer};
 
     #[test]
     fn empty_file_works() {
@@ -214,15 +285,19 @@ mod test {
         let lexed: Vec<_> = Lexer::new(input_str)
             .map(|t| t.unwrap().token_type())
             .collect();
-        assert_eq!(lexed, vec![
-            TokenType::Comma,
-            TokenType::Dot,
-            TokenType::Star,
-            TokenType::Semicolon,
-            TokenType::GreaterEqual,
-            TokenType::LessEqual,
-            TokenType::Eof,
-        ]);
+        println!("{:?}", lexed);
+        assert_eq!(
+            lexed,
+            vec![
+                TokenType::Comma,
+                TokenType::Dot,
+                TokenType::Star,
+                TokenType::Semicolon,
+                TokenType::Ge,
+                TokenType::Le,
+                TokenType::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -231,14 +306,20 @@ mod test {
         let lexed: Vec<_> = Lexer::new(input_str)
             .map(|t| t.unwrap().source().to_owned())
             .collect();
-        assert_eq!(lexed, vec![
-            ",",
-            ".",
-            "*",
-            ";",
-            ">=",
-            "<=",
-            "",
-        ]);
+        assert_eq!(lexed, vec![",", ".", "*", ";", ">=", "<=", "",]);
+    }
+
+    #[test]
+    fn comments_work() {
+        let input_str = r"
+            // Hello
+            !=
+            // Hi
+            ;)
+            ";
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source().to_owned()))
+            .collect();
+        assert_eq!(lexed.unwrap(), vec!["!=", ";", ")", "",]);
     }
 }
