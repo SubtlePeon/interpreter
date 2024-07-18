@@ -180,6 +180,7 @@ impl<'a> Token<'a> {
     pub fn display(&self) -> Cow<str> {
         match self.ty {
             TokenType::String => self.span.src.into(),
+            TokenType::Number => self.span.src.into(),
             _ => "null".into(),
         }
     }
