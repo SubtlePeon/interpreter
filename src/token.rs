@@ -180,7 +180,15 @@ impl<'a> Token<'a> {
     pub fn display(&self) -> Cow<str> {
         match self.ty {
             TokenType::String => self.span.src.into(),
-            TokenType::Number => self.span.src.into(),
+            // For some reason, to satisfy CodeCrafters, this needs to always be a
+            // floating point
+            TokenType::Number => {
+                if self.span.src.contains('.') {
+                    return self.span.src.into();
+                } else {
+                    return format!("{}.0", self.span.src).into();
+                }
+            },
             _ => "null".into(),
         }
     }
