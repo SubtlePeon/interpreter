@@ -4,16 +4,19 @@ use crate::{
 };
 
 /// The type of lex error
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LexErrorType {
     /// Unknown character.
     Unknown(char),
+    /// Unterminated string. Contains the byte index of the first quote.
+    UnterminatedString(usize),
 }
 
 impl std::fmt::Display for LexErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unknown(c) => write!(f, "Unexpected character: {}", c),
+            Self::UnterminatedString(_) => write!(f, "Unteriminated string."),
         }
     }
 }
@@ -21,7 +24,7 @@ impl std::fmt::Display for LexErrorType {
 impl std::error::Error for LexErrorType {}
 
 /// Contains some context about the lex error
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LexError<'a> {
     span: Span<'a>,
     ty: LexErrorType,
@@ -131,7 +134,7 @@ impl<'a> Lexer<'a> {
             start,
             self.cursor.index(),
             self.line,
-        )
+        ).expect("Lexer has valid indices for Token")
     }
 
     /// Creates a error from `self.start` to `self.cursor.index`.
@@ -143,7 +146,7 @@ impl<'a> Lexer<'a> {
             self.cursor.source(),
             self.start,
             self.cursor.index(),
-        );
+        ).expect("Lexer has valid indices for Token");
         // The next token should be clean.
         self.start = self.cursor.index();
 
@@ -162,94 +165,109 @@ impl<'a> Lexer<'a> {
         self.start = self.cursor.index();
     }
 
-    /// Helper function to create tokens from the next character.
-    fn eat_char(&mut self, c: char) -> Option<Result<Token<'a>, LexErrorType>> {
-        use crate::token::Delim::*;
-        use TokenType::*;
+    /// Consumes until and including the next double quote ("). Returns a
+    /// string token containing the unescaped text inside the double quotes.
+    fn eat_string(&mut self) -> Result<Token<'a>, LexErrorType> {
+        // Don't take the starting '"'
+        self.start = self.cursor.index();
 
-        Some(Ok(match c {
-            '(' => self.new_token(OpenDelim(Paren)),
-            ')' => self.new_token(CloseDelim(Paren)),
-            '{' => self.new_token(OpenDelim(Brace)),
-            '}' => self.new_token(CloseDelim(Brace)),
-            ',' => self.new_token(Comma),
-            '.' => self.new_token(Dot),
-            '-' => self.new_token(Minus),
-            '+' => self.new_token(Plus),
-            ';' => self.new_token(Semicolon),
-            '*' => self.new_token(Star),
-            '!' => {
-                if self.cursor.first() == Some('=') {
-                    self.cursor.next();
-                    self.new_token(BangEq)
-                } else {
-                    self.new_token(Bang)
-                }
-            }
-            '=' => {
-                if self.cursor.first() == Some('=') {
-                    self.cursor.next();
-                    self.new_token(EqEq)
-                } else {
-                    self.new_token(Eq)
-                }
-            }
-            '<' => {
-                if self.cursor.first() == Some('=') {
-                    self.cursor.next();
-                    self.new_token(Le)
-                } else {
-                    self.new_token(Lt)
-                }
-            }
-            '>' => {
-                if self.cursor.first() == Some('=') {
-                    self.cursor.next();
-                    self.new_token(Ge)
-                } else {
-                    self.new_token(Gt)
-                }
-            }
-            '/' => {
-                if self.cursor.first() == Some('/') {
-                    // Comment continues until newline
-                    self.eat_until_newline();
-                    return None;
-                } else {
-                    self.new_token(Slash)
-                }
-            }
-            '\n' => {
+        while let Some(c) = self.cursor.first() {
+            if c == '"' {
+                break;
+            } else if c == '\n' {
                 self.line += 1;
-                self.start = self.cursor.index();
-                return None;
             }
-            // Ignore whitespace for now
-            ws if ws.is_ascii_whitespace() => {
-                self.start = self.cursor.index();
-                return None;
-            }
+            self.cursor.next();
+        }
 
-            c => return Some(Err(LexErrorType::Unknown(c))),
-        }))
+        let tok = self.new_token(TokenType::String);
+
+        // The next char can only be the end of file or '"'. If it is
+        // the former, error; if it is the latter, consume it.
+        if let None = self.cursor.next() {
+            return Err(LexErrorType::UnterminatedString(self.start));
+        }
+        self.start = self.cursor.index();
+
+        Ok(tok)
     }
 
     pub fn scan_token(&mut self) -> Result<Token<'a>, LexError<'a>> {
-        loop {
-            break match self.cursor.next() {
-                None => {
-                    self.finished = true;
-                    Ok(self.new_token(TokenType::Eof))
-                }
-                Some(c) => {
-                    break match self.eat_char(c) {
-                        Some(Ok(token)) => Ok(token),
-                        Some(Err(err)) => Err(self.new_error(err)),
-                        None => continue,
+        use TokenType::*;
+
+        while let Some(c) = self.cursor.next() {
+            let token = match c {
+                '(' => self.new_token(OpenParen),
+                ')' => self.new_token(CloseParen),
+                '{' => self.new_token(OpenBrace),
+                '}' => self.new_token(CloseBrace),
+                ',' => self.new_token(Comma),
+                '.' => self.new_token(Dot),
+                '-' => self.new_token(Minus),
+                '+' => self.new_token(Plus),
+                ';' => self.new_token(Semicolon),
+                '*' => self.new_token(Star),
+                '!' => {
+                    if self.cursor.first() == Some('=') {
+                        self.cursor.next();
+                        self.new_token(BangEq)
+                    } else {
+                        self.new_token(Bang)
                     }
                 }
+                '=' => {
+                    if self.cursor.first() == Some('=') {
+                        self.cursor.next();
+                        self.new_token(EqEq)
+                    } else {
+                        self.new_token(Eq)
+                    }
+                }
+                '<' => {
+                    if self.cursor.first() == Some('=') {
+                        self.cursor.next();
+                        self.new_token(Le)
+                    } else {
+                        self.new_token(Lt)
+                    }
+                }
+                '>' => {
+                    if self.cursor.first() == Some('=') {
+                        self.cursor.next();
+                        self.new_token(Ge)
+                    } else {
+                        self.new_token(Gt)
+                    }
+                }
+                '/' => {
+                    if self.cursor.first() == Some('/') {
+                        // Comment continues until newline
+                        self.eat_until_newline();
+                        continue;
+                    } else {
+                        self.new_token(Slash)
+                    }
+                }
+                '"' => return self.eat_string().map_err(|err| self.new_error(err)),
+                '\n' => {
+                    self.line += 1;
+                    self.start = self.cursor.index();
+                    continue;
+                }
+                // Ignore whitespace for now
+                ws if ws.is_ascii_whitespace() => {
+                    self.start = self.cursor.index();
+                    continue
+                }
+
+                c => return Err(self.new_error(LexErrorType::Unknown(c))),
             };
+
+            return Ok(token);
         }
+
+        self.finished = true;
+        Ok(self.new_token(TokenType::Eof))
     }
 }
 
@@ -304,9 +322,9 @@ mod test {
     fn some_symbols_work_literal() {
         let input_str = ",.*;>=<=";
         let lexed: Vec<_> = Lexer::new(input_str)
-            .map(|t| t.unwrap().source().to_owned())
+            .map(|t| t.unwrap().source())
             .collect();
-        assert_eq!(lexed, vec![",", ".", "*", ";", ">=", "<=", "",]);
+        assert_eq!(lexed, vec![",", ".", "*", ";", ">=", "<=", ""]);
     }
 
     #[test]
@@ -317,9 +335,20 @@ mod test {
             // Hi
             ;)
             ";
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
-            .map(|r| r.map(|t| t.source().to_owned()))
+        let lexer = Lexer::new(input_str);
+        let lexed: Result<Vec<_>, LexError> = lexer
+            .map(|r| r.map(|t| t.source()))
             .collect();
-        assert_eq!(lexed.unwrap(), vec!["!=", ";", ")", "",]);
+        assert_eq!(lexed, Ok(vec!["!=", ";", ")", ""]));
+    }
+
+    #[test]
+    fn strings_work() {
+        let input_str = "\"This is a string\"";
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source()))
+            .collect();
+        assert_eq!(lexed.unwrap(), vec!["This is a string", ""]);
+
     }
 }
