@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// The type of lex error
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LexErrorType {
     /// Unknown character.
     Unknown(char),
@@ -39,6 +39,16 @@ impl std::fmt::Display for LexError<'_> {
 
 impl std::error::Error for LexError<'_> {}
 
+impl LexError<'_> {
+    pub fn error_type(&self) -> LexErrorType {
+        self.ty
+    }
+}
+
+// TODO: should likely use `char_indices` instead
+// TODO: should make `Cursor` generic over necessary iterators
+/// The iterator over the characters in the source text. `Cursor` helps with peeking
+/// and making sure the byte indices always lie on the boundary of characters.
 #[derive(Clone, Debug)]
 pub struct Cursor<'a> {
     source: &'a str,
@@ -128,6 +138,7 @@ impl<'a> Lexer<'a> {
         let start = self.start;
         self.start = self.cursor.index();
 
+        // Using `Cursor` should ensure that the indices are valid
         Token::new(
             token_type,
             self.cursor.source(),
@@ -141,6 +152,7 @@ impl<'a> Lexer<'a> {
     ///
     /// Resets `self.start`
     fn new_error(&mut self, err: LexErrorType) -> LexError<'a> {
+        // Using `Cursor` should ensure that the indices are valid
         let span = Span::new(
             self.line,
             self.cursor.source(),
@@ -190,6 +202,36 @@ impl<'a> Lexer<'a> {
         self.start = self.cursor.index();
 
         Ok(tok)
+    }
+
+    /// Eats a number
+    fn eat_number(&mut self) -> Token<'a> {
+        // Basic number parsing
+        let mut after_dot = false;
+        while let Some(c) = self.cursor.first() {
+            if c.is_ascii_digit() {
+                self.cursor.next();
+            } else if c == '.' {
+                // The dot should not be a part of the number literal if:
+                // - This is the second dot we encountered
+                // - The character after the dot is not a digit ()
+                if after_dot {
+                    break;
+                }
+                match self.cursor.second() {
+                    None => break,
+                    Some(c) if c.is_ascii_digit() => {
+                        _ = self.cursor.next();
+                        after_dot = true;
+                    }
+                    Some(_) => break,
+                }
+            } else {
+                break;
+            }
+        }
+
+        self.new_token(TokenType::Number)
     }
 
     pub fn scan_token(&mut self) -> Result<Token<'a>, LexError<'a>> {
@@ -249,6 +291,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '"' => return self.eat_string().map_err(|err| self.new_error(err)),
+                c if c.is_ascii_digit() => self.eat_number(),
                 '\n' => {
                     self.line += 1;
                     self.start = self.cursor.index();
@@ -287,7 +330,7 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::token::TokenType;
+    use crate::{lexer::LexErrorType, token::TokenType};
 
     use super::{LexError, Lexer};
 
@@ -348,7 +391,29 @@ mod test {
         let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
             .map(|r| r.map(|t| t.source()))
             .collect();
-        assert_eq!(lexed.unwrap(), vec!["This is a string", ""]);
+        assert_eq!(lexed, Ok(vec!["This is a string", ""]));
+    }
 
+    #[test]
+    fn unterminated_string() {
+        let input_str = "\"This string never ends!";
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source()))
+            .collect();
+        assert!(
+            matches!(
+                lexed.map_err(|err| err.error_type()),
+                Err(LexErrorType::UnterminatedString(_)),
+            )
+        );
+    }
+
+    #[test]
+    fn numbers_work() {
+        let input_str = "1234.1234 123.0 10985 1.";
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source()))
+            .collect();
+        assert_eq!(lexed, Ok(vec!["1234.1234", "123.0", "10985", "1", ".", ""]));
     }
 }
