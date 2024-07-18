@@ -16,7 +16,7 @@ impl std::fmt::Display for LexErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unknown(c) => write!(f, "Unexpected character: {}", c),
-            Self::UnterminatedString(_) => write!(f, "Unteriminated string."),
+            Self::UnterminatedString(_) => write!(f, "Unterminated string."),
         }
     }
 }
