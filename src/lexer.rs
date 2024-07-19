@@ -234,6 +234,21 @@ impl<'a> Lexer<'a> {
         self.new_token(TokenType::Number)
     }
 
+    /// Consume an identifier or keyword
+    fn eat_identifier(&mut self) -> Token<'a> {
+        while let Some(c) = self.cursor.first() {
+            if c.is_alphanumeric() || c == '_' {
+                self.cursor.next();
+            } else {
+                break;
+            }
+        }
+
+        self.new_token(TokenType::Ident)
+    }
+
+    /// Get the next token. If at the end of the source text, this function will keep
+    /// returning an `EOF` token.
     pub fn scan_token(&mut self) -> Result<Token<'a>, LexError<'a>> {
         use TokenType::*;
 
@@ -297,11 +312,18 @@ impl<'a> Lexer<'a> {
                     self.start = self.cursor.index();
                     continue;
                 }
-                // Ignore whitespace for now
+
+                // Ignore whitespace
                 ws if ws.is_ascii_whitespace() => {
                     self.start = self.cursor.index();
                     continue
                 }
+
+                '_' => self.eat_identifier(),
+                // This allows many (maybe too many) characters as identifiers.
+                // The Rust language uses Unicode Standard Annex #31 (Xid_Start + '_'
+                // and Xid_Continue).
+                c if c.is_alphabetic() => self.eat_identifier(),
 
                 c => return Err(self.new_error(LexErrorType::Unknown(c))),
             };
@@ -415,5 +437,30 @@ mod test {
             .map(|r| r.map(|t| t.source()))
             .collect();
         assert_eq!(lexed, Ok(vec!["1234.1234", "123.0", "10985", "1", ".", ""]));
+    }
+
+    #[test]
+    fn idents_work() {
+        use crate::token::Keyword;
+
+        let input_str = "hello and me, if we sing!";
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source()))
+            .collect();
+        assert_eq!(lexed, Ok(vec!["hello", "and", "me", ",", "if", "we", "sing", "!", ""]));
+        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.token_type()))
+            .collect();
+        assert_eq!(lexed, Ok(vec![
+            TokenType::Ident,
+            TokenType::Keyword(Keyword::And),
+            TokenType::Ident,
+            TokenType::Comma,
+            TokenType::Keyword(Keyword::If),
+            TokenType::Ident,
+            TokenType::Ident,
+            TokenType::Bang,
+            TokenType::Eof,
+        ]));
     }
 }

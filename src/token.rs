@@ -1,6 +1,97 @@
 use std::borrow::Cow;
+use std::str::FromStr;
 
 use crate::span::Span;
+
+/// Keywords from Robert Nystrom's Crafting Interpretes
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keyword {
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
+}
+
+impl FromStr for Keyword {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "and" =>    Self::And,
+            "class" =>  Self::Class,
+            "else" =>   Self::Else,
+            "false" =>  Self::False,
+            "for" =>    Self::For,
+            "fun" =>    Self::Fun,
+            "if" =>     Self::If,
+            "nil" =>    Self::Nil,
+            "or" =>     Self::Or,
+            "print" =>  Self::Print,
+            "return" => Self::Return,
+            "super" =>  Self::Super,
+            "this" =>   Self::This,
+            "true" =>   Self::True,
+            "var" =>    Self::Var,
+            "while" =>  Self::While,
+            _ => return Err(()),
+        })
+    }
+}
+
+impl Keyword {
+    pub fn conv_case(&self) -> &'static str {
+        match self {
+            Self::And => "AND",
+            Self::Class => "CLASS",
+            Self::Else => "ELSE",
+            Self::False => "FALSE",
+            Self::For => "FOR",
+            Self::Fun => "FUN",
+            Self::If => "IF",
+            Self::Nil => "NIL",
+            Self::Or => "OR",
+            Self::Print => "PRINT",
+            Self::Return => "RETURN",
+            Self::Super => "SUPER",
+            Self::This => "THIS",
+            Self::True => "TRUE",
+            Self::Var => "VAR",
+            Self::While => "WHILE",
+        }
+    }
+
+    pub fn expected_src(&self) -> &'static str {
+        match self {
+            Self::And => "and",
+            Self::Class => "class",
+            Self::Else => "else",
+            Self::False => "false",
+            Self::For => "for",
+            Self::Fun => "fun",
+            Self::If => "if",
+            Self::Nil => "nil",
+            Self::Or => "or",
+            Self::Print => "print",
+            Self::Return => "return",
+            Self::Super => "super",
+            Self::This => "this",
+            Self::True => "true",
+            Self::Var => "var",
+            Self::While => "while",
+        }
+    }
+}
 
 /// The type of token, usually a representative of the source code symbol.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +140,8 @@ pub enum TokenType {
     Le,
     /// An identifier (a word like 'this_is_a_variable').
     Ident,
+    /// A reserved identifier.
+    Keyword(Keyword),
     /// An integer or floating-point number.
     Number,
     /// A string enclosed in double quotes ('"').
@@ -85,6 +178,7 @@ impl TokenType {
             Self::Lt => "LESS",
             Self::Le => "LESS_EQUAL",
             Self::Ident => "IDENT",
+            Self::Keyword(k) => k.conv_case(),
             Self::Number => "NUMBER",
             Self::String => "STRING",
             Self::Eof => "EOF",
@@ -115,8 +209,18 @@ impl TokenType {
             Self::Ge => ">=",
             Self::Lt => "<",
             Self::Le => "<=",
+            Self::Keyword(k) => k.expected_src(),
             _ => return None,
         })
+    }
+
+    pub fn from_ident(
+        span: &Span,
+    ) -> Self {
+        match Keyword::from_str(span.src) {
+            Ok(k) => Self::Keyword(k),
+            Err(_) => Self::Ident,
+        }
     }
 }
 
@@ -131,7 +235,7 @@ impl<'a> Token<'a> {
     /// Create a new `Token`. Returns `None` if the indices `lo` and `hi` are not valid 
     /// byte indices (at character boundaries) for `source_text`.
     pub fn new(
-        token_type: TokenType,
+        mut token_type: TokenType,
         source_text: &'a str,
         lo: usize,
         hi: usize,
@@ -147,9 +251,15 @@ impl<'a> Token<'a> {
             );
         }
 
+        let span = Span::with_src(line, src, lo, hi);
+
+        if matches!(token_type, TokenType::Ident) {
+            token_type = TokenType::from_ident(&span)
+        }
+
         Some(Self {
             ty: token_type,
-            span: Span::with_src(line, src, lo, hi),
+            span,
         })
     }
 
