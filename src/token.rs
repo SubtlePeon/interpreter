@@ -278,7 +278,9 @@ impl<'a> Token<'a> {
         &self.span
     }
 
-    /// Get a representative string for this token.
+    /// Get a representative string for this token. This is the underlying
+    /// source text that identifies this token (excpet for strings, which
+    /// do not have the double quotes in the underlying representation).
     pub fn repr(&self) -> Cow<str> {
         match self.ty {
             TokenType::String => format!("\"{}\"", self.span.src).into(),
@@ -293,10 +295,11 @@ impl<'a> Token<'a> {
             // For some reason, to satisfy CodeCrafters, this needs to always be a
             // floating point
             TokenType::Number => {
-                if self.span.src.contains('.') {
-                    return self.span.src.into();
+                let num: f64 = self.span.src.parse().expect("Valid num string");
+                if num == num.round() {
+                    format!("{}.0", num).into()
                 } else {
-                    return format!("{}.0", self.span.src).into();
+                    num.to_string().into()
                 }
             },
             _ => "null".into(),
