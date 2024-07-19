@@ -177,7 +177,7 @@ impl TokenType {
             Self::Ge => "GREATER_EQUAL",
             Self::Lt => "LESS",
             Self::Le => "LESS_EQUAL",
-            Self::Ident => "IDENT",
+            Self::Ident => "IDENTIFIER",
             Self::Keyword(k) => k.conv_case(),
             Self::Number => "NUMBER",
             Self::String => "STRING",
