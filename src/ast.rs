@@ -96,6 +96,7 @@ pub enum LitKind {
     Boolean(bool),
     Number(f64),
     String(String),
+    Nil,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -122,6 +123,7 @@ impl Literal {
             (TokenType::String, src) => LitKind::String(src.to_owned()),
             (TokenType::Keyword(Keyword::True), _) => LitKind::Boolean(true),
             (TokenType::Keyword(Keyword::False), _) => LitKind::Boolean(false),
+            (TokenType::Keyword(Keyword::Nil), _) => LitKind::Nil,
             _ => return Err(ParseExprError::BadTokenType),
         };
 
@@ -146,6 +148,7 @@ impl fmt::Display for Literal {
             LitKind::Boolean(b) => write!(f, "{}", b),
             LitKind::Number(num) => write!(f, "{}", num),
             LitKind::String(s) => write!(f, "{}", s),
+            LitKind::Nil => write!(f, "nil"),
         }
     }
 }
