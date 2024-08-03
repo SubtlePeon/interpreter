@@ -47,9 +47,19 @@ fn main() -> ExitCode {
             });
 
             let scanner = lexer::Lexer::new(&file_contents);
-            let parser = parser::Parser::from_lexer(scanner);
+            let mut parser = parser::Parser::from_lexer(scanner);
 
-            _ = parser;
+            let prog = match parser.parse_program() {
+                Ok(prog) => prog,
+                Err(errs) => {
+                    for _ in errs {
+                        // TODO: print errors
+                    }
+                    return 65.into();
+                }
+            };
+
+            println!("{}", prog);
 
             0.into()
         }

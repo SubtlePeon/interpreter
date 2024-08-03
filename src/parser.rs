@@ -118,11 +118,12 @@ mod test {
         let mut parser = Parser::new(lexer, input);
 
         let expr = parser.parse_program().unwrap();
+        assert_eq!(format!("{}", expr), "false".to_owned());
+
         let Expr::Literal(lit) = expr else {
             panic!("`expr` was not a `Literal`, it was: {:?}", expr);
         };
 
         assert_eq!(*lit.kind(), LitKind::Boolean(false));
-        assert_eq!(format!("{}", lit), "false".to_owned());
     }
 }
