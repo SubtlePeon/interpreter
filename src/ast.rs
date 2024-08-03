@@ -146,7 +146,13 @@ impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.kind {
             LitKind::Boolean(b) => write!(f, "{}", b),
-            LitKind::Number(num) => write!(f, "{}", num),
+            LitKind::Number(num) => {
+                if num.fract() == 0.0 {
+                    write!(f, "{}.0", num)
+                } else {
+                    write!(f, "{}", num)
+                }
+            },
             LitKind::String(s) => write!(f, "{}", s),
             LitKind::Nil => write!(f, "nil"),
         }

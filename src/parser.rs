@@ -126,4 +126,53 @@ mod test {
 
         assert_eq!(*lit.kind(), LitKind::Boolean(false));
     }
+
+    #[test]
+    fn nil() {
+        let input = "nil";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer, input);
+
+        let expr = parser.parse_program().unwrap();
+        assert_eq!(format!("{}", expr), "nil".to_owned());
+
+        let Expr::Literal(lit) = expr else {
+            panic!("`expr` was not a `Literal`, it was: {:?}", expr);
+        };
+
+        assert_eq!(*lit.kind(), LitKind::Nil);
+    }
+
+    #[test]
+    fn num() {
+        let input = "86.2";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer, input);
+
+        let expr = parser.parse_program().unwrap();
+        assert_eq!(format!("{}", expr), "86.2".to_owned());
+
+        let Expr::Literal(lit) = expr else {
+            panic!("`expr` was not a `Literal`, it was: {:?}", expr);
+        };
+
+        assert_eq!(*lit.kind(), LitKind::Number(86.2));
+    }
+
+    /// CodeCrafters requires that numbers with no fractional part end with ".0"
+    #[test]
+    fn num_end_zero() {
+        let input = "86";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer, input);
+
+        let expr = parser.parse_program().unwrap();
+        assert_eq!(format!("{}", expr), "86.0".to_owned());
+
+        let Expr::Literal(lit) = expr else {
+            panic!("`expr` was not a `Literal`, it was: {:?}", expr);
+        };
+
+        assert_eq!(*lit.kind(), LitKind::Number(86.0));
+    }
 }
