@@ -23,23 +23,25 @@ impl std::fmt::Display for LexErrorType {
 
 impl std::error::Error for LexErrorType {}
 
+pub type LexResult = Result<Token, LexError>;
+
 /// Contains some context about the lex error
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LexError<'a> {
-    span: Span<'a>,
+pub struct LexError {
+    span: Span,
     ty: LexErrorType,
 }
 
-impl std::fmt::Display for LexError<'_> {
+impl std::fmt::Display for LexError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[line {}] Error: ", self.span.line)?;
         self.ty.fmt(f)
     }
 }
 
-impl std::error::Error for LexError<'_> {}
+impl std::error::Error for LexError {}
 
-impl LexError<'_> {
+impl LexError {
     pub fn error_type(&self) -> LexErrorType {
         self.ty
     }
@@ -134,31 +136,36 @@ impl<'a> Lexer<'a> {
     /// Creates a new token from `self.start` to `self.cursor.index`.
     ///
     /// Resets `self.start`
-    fn new_token(&mut self, token_type: TokenType) -> Token<'a> {
+    fn new_token(&mut self, token_type: TokenType) -> Token {
         let start = self.start;
         self.start = self.cursor.index();
 
-        // Using `Cursor` should ensure that the indices are valid
-        Token::new(
-            token_type,
-            self.cursor.source(),
+        let span = Span::new_checked(
             start,
             self.cursor.index(),
             self.line,
-        ).expect("Lexer has valid indices for Token")
+            self.cursor.source(),
+        )
+        .expect("Lexer has valid indices for Span");
+
+        // Using `Cursor` should ensure that the indices are valid
+        Token::new_checked(token_type, self.cursor.source(), span)
+            .expect("Lexer has valid indices for Token")
     }
 
     /// Creates a error from `self.start` to `self.cursor.index`.
     ///
     /// Resets `self.start`
-    fn new_error(&mut self, err: LexErrorType) -> LexError<'a> {
+    fn new_error(&mut self, err: LexErrorType) -> LexError {
         // Using `Cursor` should ensure that the indices are valid
-        let span = Span::new(
-            self.line,
-            self.cursor.source(),
+        let span = Span::new_checked(
             self.start,
             self.cursor.index(),
-        ).expect("Lexer has valid indices for Token");
+            self.line,
+            self.cursor.source(),
+        )
+        .expect("Lexer has valid indices for Token");
+
         // The next token should be clean.
         self.start = self.cursor.index();
 
@@ -179,7 +186,7 @@ impl<'a> Lexer<'a> {
 
     /// Consumes until and including the next double quote ("). Returns a
     /// string token containing the unescaped text inside the double quotes.
-    fn eat_string(&mut self) -> Result<Token<'a>, LexErrorType> {
+    fn eat_string(&mut self) -> Result<Token, LexErrorType> {
         // Don't take the starting '"'
         self.start = self.cursor.index();
 
@@ -205,7 +212,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Eats a number
-    fn eat_number(&mut self) -> Token<'a> {
+    fn eat_number(&mut self) -> Token {
         // Basic number parsing
         let mut after_dot = false;
         while let Some(c) = self.cursor.first() {
@@ -235,7 +242,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Consume an identifier or keyword
-    fn eat_identifier(&mut self) -> Token<'a> {
+    fn eat_identifier(&mut self) -> Token {
         while let Some(c) = self.cursor.first() {
             if c.is_alphanumeric() || c == '_' {
                 self.cursor.next();
@@ -249,7 +256,7 @@ impl<'a> Lexer<'a> {
 
     /// Get the next token. If at the end of the source text, this function will keep
     /// returning an `EOF` token.
-    pub fn scan_token(&mut self) -> Result<Token<'a>, LexError<'a>> {
+    pub fn scan_token(&mut self) -> LexResult {
         use TokenType::*;
 
         while let Some(c) = self.cursor.next() {
@@ -316,7 +323,7 @@ impl<'a> Lexer<'a> {
                 // Ignore whitespace
                 ws if ws.is_ascii_whitespace() => {
                     self.start = self.cursor.index();
-                    continue
+                    continue;
                 }
 
                 '_' => self.eat_identifier(),
@@ -334,10 +341,14 @@ impl<'a> Lexer<'a> {
         self.finished = true;
         Ok(self.new_token(TokenType::Eof))
     }
+
+    pub fn source(&self) -> &'a str {
+        self.cursor.source()
+    }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token<'a>, LexError<'a>>;
+    type Item = LexResult;
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
             None
@@ -354,11 +365,12 @@ impl<'a> Iterator for Lexer<'a> {
 mod test {
     use crate::{lexer::LexErrorType, token::TokenType};
 
-    use super::{LexError, Lexer};
+    use super::Lexer;
 
     #[test]
     fn empty_file_works() {
-        let lexed: Vec<_> = Lexer::new("").map(|t| t.unwrap().token_type()).collect();
+        let lexed: Vec<_> =
+            Lexer::new("").map(|t| t.unwrap().token_type()).collect();
         assert_eq!(lexed, vec![TokenType::Eof]);
     }
 
@@ -386,9 +398,8 @@ mod test {
     #[test]
     fn some_symbols_work_literal() {
         let input_str = ",.*;>=<=";
-        let lexed: Vec<_> = Lexer::new(input_str)
-            .map(|t| t.unwrap().source())
-            .collect();
+        let lexed: Vec<_> =
+            Lexer::new(input_str).map(|t| t.unwrap().source(&input_str)).collect();
         assert_eq!(lexed, vec![",", ".", "*", ";", ">=", "<=", ""]);
     }
 
@@ -401,17 +412,16 @@ mod test {
             ;)
             ";
         let lexer = Lexer::new(input_str);
-        let lexed: Result<Vec<_>, LexError> = lexer
-            .map(|r| r.map(|t| t.source()))
-            .collect();
+        let lexed: Result<Vec<_>, _> =
+            lexer.map(|r| r.map(|t| t.source(&input_str))).collect();
         assert_eq!(lexed, Ok(vec!["!=", ";", ")", ""]));
     }
 
     #[test]
     fn strings_work() {
         let input_str = "\"This is a string\"";
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
-            .map(|r| r.map(|t| t.source()))
+        let lexed: Result<Vec<_>, _> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source(&input_str)))
             .collect();
         assert_eq!(lexed, Ok(vec!["This is a string", ""]));
     }
@@ -419,22 +429,20 @@ mod test {
     #[test]
     fn unterminated_string() {
         let input_str = "\"This string never ends!";
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
-            .map(|r| r.map(|t| t.source()))
+        let lexed: Result<Vec<_>, _> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source(&input_str)))
             .collect();
-        assert!(
-            matches!(
-                lexed.map_err(|err| err.error_type()),
-                Err(LexErrorType::UnterminatedString(_)),
-            )
-        );
+        assert!(matches!(
+            lexed.map_err(|err| err.error_type()),
+            Err(LexErrorType::UnterminatedString(_)),
+        ));
     }
 
     #[test]
     fn numbers_work() {
         let input_str = "1234.1234 123.0 10985 1.";
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
-            .map(|r| r.map(|t| t.source()))
+        let lexed: Result<Vec<_>, _> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source(&input_str)))
             .collect();
         assert_eq!(lexed, Ok(vec!["1234.1234", "123.0", "10985", "1", ".", ""]));
     }
@@ -444,23 +452,30 @@ mod test {
         use crate::token::Keyword;
 
         let input_str = "hello and me, if we sing!";
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
-            .map(|r| r.map(|t| t.source()))
+        let lexed: Result<Vec<_>, _> = Lexer::new(input_str)
+            .map(|r| r.map(|t| t.source(&input_str)))
             .collect();
-        assert_eq!(lexed, Ok(vec!["hello", "and", "me", ",", "if", "we", "sing", "!", ""]));
-        let lexed: Result<Vec<_>, LexError> = Lexer::new(input_str)
+        assert_eq!(
+            lexed,
+            Ok(vec!["hello", "and", "me", ",", "if", "we", "sing", "!", ""])
+        );
+
+        let lexed: Result<Vec<_>, _> = Lexer::new(input_str)
             .map(|r| r.map(|t| t.token_type()))
             .collect();
-        assert_eq!(lexed, Ok(vec![
-            TokenType::Ident,
-            TokenType::Keyword(Keyword::And),
-            TokenType::Ident,
-            TokenType::Comma,
-            TokenType::Keyword(Keyword::If),
-            TokenType::Ident,
-            TokenType::Ident,
-            TokenType::Bang,
-            TokenType::Eof,
-        ]));
+        assert_eq!(
+            lexed,
+            Ok(vec![
+                TokenType::Ident,
+                TokenType::Keyword(Keyword::And),
+                TokenType::Ident,
+                TokenType::Comma,
+                TokenType::Keyword(Keyword::If),
+                TokenType::Ident,
+                TokenType::Ident,
+                TokenType::Bang,
+                TokenType::Eof,
+            ])
+        );
     }
 }

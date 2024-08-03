@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::fmt;
 use std::str::FromStr;
 
 use crate::span::Span;
@@ -24,72 +24,54 @@ pub enum Keyword {
     While,
 }
 
+pub struct KeywordError {
+    src: String,
+}
+
+impl KeywordError {
+    pub fn new(src: String) -> Self {
+        Self { src }
+    }
+}
+
+impl fmt::Display for KeywordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Not a keyword: '{}'", self.src)
+    }
+}
+
 impl FromStr for Keyword {
-    type Err = ();
+    type Err = KeywordError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "and" =>    Self::And,
-            "class" =>  Self::Class,
-            "else" =>   Self::Else,
-            "false" =>  Self::False,
-            "for" =>    Self::For,
-            "fun" =>    Self::Fun,
-            "if" =>     Self::If,
-            "nil" =>    Self::Nil,
-            "or" =>     Self::Or,
-            "print" =>  Self::Print,
+            "and" => Self::And,
+            "class" => Self::Class,
+            "else" => Self::Else,
+            "false" => Self::False,
+            "for" => Self::For,
+            "fun" => Self::Fun,
+            "if" => Self::If,
+            "nil" => Self::Nil,
+            "or" => Self::Or,
+            "print" => Self::Print,
             "return" => Self::Return,
-            "super" =>  Self::Super,
-            "this" =>   Self::This,
-            "true" =>   Self::True,
-            "var" =>    Self::Var,
-            "while" =>  Self::While,
-            _ => return Err(()),
+            "super" => Self::Super,
+            "this" => Self::This,
+            "true" => Self::True,
+            "var" => Self::Var,
+            "while" => Self::While,
+            _ => return Err(KeywordError::new(s.to_owned())),
         })
     }
 }
 
 impl Keyword {
-    pub fn conv_case(&self) -> &'static str {
-        match self {
-            Self::And => "AND",
-            Self::Class => "CLASS",
-            Self::Else => "ELSE",
-            Self::False => "FALSE",
-            Self::For => "FOR",
-            Self::Fun => "FUN",
-            Self::If => "IF",
-            Self::Nil => "NIL",
-            Self::Or => "OR",
-            Self::Print => "PRINT",
-            Self::Return => "RETURN",
-            Self::Super => "SUPER",
-            Self::This => "THIS",
-            Self::True => "TRUE",
-            Self::Var => "VAR",
-            Self::While => "WHILE",
-        }
+    pub fn conv_case(&self) -> String {
+        format!("{:?}", self).to_ascii_uppercase()
     }
 
-    pub fn expected_src(&self) -> &'static str {
-        match self {
-            Self::And => "and",
-            Self::Class => "class",
-            Self::Else => "else",
-            Self::False => "false",
-            Self::For => "for",
-            Self::Fun => "fun",
-            Self::If => "if",
-            Self::Nil => "nil",
-            Self::Or => "or",
-            Self::Print => "print",
-            Self::Return => "return",
-            Self::Super => "super",
-            Self::This => "this",
-            Self::True => "true",
-            Self::Var => "var",
-            Self::While => "while",
-        }
+    pub fn expected_src(&self) -> String {
+        format!("{:?}", self).to_ascii_lowercase()
     }
 }
 
@@ -154,7 +136,7 @@ impl TokenType {
     /// CodeCrafters needs the names of the token types to be in
     /// `SCREAMING_SNAKE_CASE`, so this is the function to convert their
     /// names.
-    pub fn conv_case(&self) -> &'static str {
+    pub fn conv_case(&self) -> String {
         match self {
             Self::OpenParen => "LEFT_PAREN",
             Self::CloseParen => "RIGHT_PAREN",
@@ -178,46 +160,48 @@ impl TokenType {
             Self::Lt => "LESS",
             Self::Le => "LESS_EQUAL",
             Self::Ident => "IDENTIFIER",
-            Self::Keyword(k) => k.conv_case(),
+            Self::Keyword(k) => return k.conv_case(),
             Self::Number => "NUMBER",
             Self::String => "STRING",
             Self::Eof => "EOF",
         }
+        .to_owned()
     }
 
     /// The expected representation of the token type.
-    pub fn expected_src(&self) -> Option<&'static str> {
-        Some(match self {
-            Self::OpenParen => "(",
-            Self::CloseParen => ")",
-            Self::OpenBracket => "[",
-            Self::CloseBracket => "]",
-            Self::OpenBrace => "{",
-            Self::CloseBrace => "}",
-            Self::Comma => ",",
-            Self::Dot => ".",
-            Self::Minus => "-",
-            Self::Plus => "+",
-            Self::Semicolon => ";",
-            Self::Slash => "/",
-            Self::Star => "*",
-            Self::Bang => "!",
-            Self::BangEq => "!=",
-            Self::Eq => "=",
-            Self::EqEq => "==",
-            Self::Gt => ">",
-            Self::Ge => ">=",
-            Self::Lt => "<",
-            Self::Le => "<=",
-            Self::Keyword(k) => k.expected_src(),
-            _ => return None,
-        })
+    pub fn repr(&self) -> Option<String> {
+        Some(
+            match self {
+                Self::OpenParen => "(",
+                Self::CloseParen => ")",
+                Self::OpenBracket => "[",
+                Self::CloseBracket => "]",
+                Self::OpenBrace => "{",
+                Self::CloseBrace => "}",
+                Self::Comma => ",",
+                Self::Dot => ".",
+                Self::Minus => "-",
+                Self::Plus => "+",
+                Self::Semicolon => ";",
+                Self::Slash => "/",
+                Self::Star => "*",
+                Self::Bang => "!",
+                Self::BangEq => "!=",
+                Self::Eq => "=",
+                Self::EqEq => "==",
+                Self::Gt => ">",
+                Self::Ge => ">=",
+                Self::Lt => "<",
+                Self::Le => "<=",
+                Self::Keyword(k) => return Some(k.expected_src()),
+                _ => return None,
+            }
+            .to_owned(),
+        )
     }
 
-    pub fn from_ident(
-        span: &Span,
-    ) -> Self {
-        match Keyword::from_str(span.src) {
+    pub fn from_ident(src: &str) -> Self {
+        match Keyword::from_str(src) {
             Ok(k) => Self::Keyword(k),
             Err(_) => Self::Ident,
         }
@@ -226,24 +210,18 @@ impl TokenType {
 
 /// A token, which forms the output of the lexer.
 #[derive(Clone, Debug)]
-pub struct Token<'a> {
+pub struct Token {
     ty: TokenType,
-    span: Span<'a>,
+    span: Span,
 }
 
-impl<'a> Token<'a> {
-    /// Create a new `Token`. Returns `None` if the indices `lo` and `hi` are not valid 
+impl Token {
+    /// Create a new `Token`. Returns `None` if the indices `lo` and `hi` are not valid
     /// byte indices (at character boundaries) for `source_text`.
-    pub fn new(
-        mut token_type: TokenType,
-        source_text: &'a str,
-        lo: usize,
-        hi: usize,
-        line: usize,
-    ) -> Option<Self> {
-        let src = source_text.get(lo..hi)?;
+    pub fn new_checked(mut token_type: TokenType, source_text: &str, span: Span) -> Option<Self> {
+        let src = span.source(source_text)?;
 
-        if let Some(exp) = token_type.expected_src() {
+        if let Some(exp) = token_type.repr() {
             debug_assert_eq!(
                 src, exp,
                 "The token type of {:?} should have a src of '{}'",
@@ -251,10 +229,8 @@ impl<'a> Token<'a> {
             );
         }
 
-        let span = Span::with_src(line, src, lo, hi);
-
         if matches!(token_type, TokenType::Ident) {
-            token_type = TokenType::from_ident(&span)
+            token_type = TokenType::from_ident(src)
         }
 
         Some(Self {
@@ -269,46 +245,50 @@ impl<'a> Token<'a> {
     }
 
     /// Get the source code snippet.
-    pub fn source(&self) -> &'a str {
-        self.span.src
+    pub fn source<'a>(&self, src_text: &'a str) -> &'a str {
+        self.span.source_unchecked(src_text)
     }
 
     /// Get the span of this token.
-    pub fn span(&self) -> &Span<'a> {
+    pub fn span(&self) -> &Span {
         &self.span
     }
 
     /// Get a representative string for this token. This is the underlying
     /// source text that identifies this token (excpet for strings, which
     /// do not have the double quotes in the underlying representation).
-    pub fn repr(&self) -> Cow<str> {
+    pub fn repr(&self, src_text: &str) -> String {
         match self.ty {
-            TokenType::String => format!("\"{}\"", self.span.src).into(),
-            _ => self.span.src.into(),
+            TokenType::String => format!("\"{}\"", self.source(src_text)),
+            _ => self.source(src_text).to_owned(),
         }
     }
 
     /// Get a display string for this token.
-    pub fn display(&self) -> Cow<str> {
+    pub fn display(&self, src_text: &str) -> String {
         match self.ty {
-            TokenType::String => self.span.src.into(),
+            TokenType::String => self.source(src_text).to_owned(),
             // For some reason, to satisfy CodeCrafters, this needs to always be a
             // floating point
             TokenType::Number => {
-                let num: f64 = self.span.src.parse().expect("Valid num string");
+                let num: f64 = self.source(src_text).parse().expect("Valid num string");
                 if num == num.round() {
                     format!("{}.0", num).into()
                 } else {
                     num.to_string().into()
                 }
-            },
+            }
             _ => "null".into(),
         }
     }
-}
 
-impl<'a> std::fmt::Display for Token<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} {}", self.ty.conv_case(), self.repr(), self.display())
+    /// Display format as requested by CodeCrafters
+    pub fn conv(&self, src_text: &str) -> String {
+        format!(
+            "{} {} {}",
+            self.ty.conv_case(),
+            self.repr(src_text),
+            self.display(src_text)
+        )
     }
 }

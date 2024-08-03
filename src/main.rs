@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::io::{self, Write};
 use std::process::ExitCode;
 
 use interpreter_starter_rust::*;
@@ -18,7 +17,7 @@ fn main() -> ExitCode {
     match command.as_str() {
         "tokenize" => {
             let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
-                writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
+                eprintln!("Failed to read file {}", filename);
                 String::new()
             });
 
@@ -27,23 +26,23 @@ fn main() -> ExitCode {
             let tokens: Vec<_> = scanner.collect();
             for tok in tokens {
                 match tok {
-                    Ok(tok) => println!("{}", tok),
+                    Ok(tok) => println!("{}", tok.conv(&file_contents)),
                     Err(err) => {
                         errored = true;
                         eprintln!("{}", err);
-                    },
+                    }
                 }
             }
 
             if errored {
-                return 65.into();
+                65.into()
             } else {
-                return 0.into();
+                0.into()
             }
         }
         _ => {
             eprintln!("Unknown command: {}", command);
-            return 0.into();
+            0.into()
         }
     }
 }
