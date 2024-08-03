@@ -40,6 +40,19 @@ fn main() -> ExitCode {
                 0.into()
             }
         }
+        "parse" => {
+            let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
+                eprintln!("Failed to read file {}", filename);
+                String::new()
+            });
+
+            let scanner = lexer::Lexer::new(&file_contents);
+            let parser = parser::Parser::from_lexer(scanner);
+
+            _ = parser;
+
+            0.into()
+        }
         _ => {
             eprintln!("Unknown command: {}", command);
             0.into()
