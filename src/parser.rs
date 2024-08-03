@@ -1,6 +1,6 @@
 use crate::ast::{Expr, Literal};
-use crate::lexer::{self, LexResult};
-use crate::token::{Keyword, Token, TokenType};
+use crate::lexer::LexResult;
+use crate::token::{Token, TokenType};
 
 use std::fmt;
 
@@ -76,7 +76,7 @@ where
     }
 
     /// Report a parsing error.
-    fn error(&mut self, msg: &str) {
+    fn _error(&mut self, _msg: &str) {
         // TODO
     }
 
